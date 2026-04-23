@@ -1,0 +1,1261 @@
+Файл { MainActivity.kt }
+package com.kletter.dailies
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.room.Room
+import com.kletter.dailies.data.AppDatabase
+import com.kletter.dailies.repositories.HabitRepository
+import com.kletter.dailies.ui.theme.DailiesTheme
+import com.kletter.dailies.viewmodels.CreateHabitViewModel
+import com.kletter.dailies.viewmodels.CreateHabitViewModelFactory
+import com.kletter.dailies.viewmodels.HabitViewModel
+import com.kletter.dailies.viewmodels.HabitViewModelFactory
+import com.kletter.dailies.viewmodels.HabitsListViewModel
+import com.kletter.dailies.viewmodels.HabitsListViewModelFactory
+import com.kletter.dailies.views.CreateHabitScreen
+import com.kletter.dailies.views.EditHabitScreen
+import com.kletter.dailies.views.MainScreen
+
+@ExperimentalMaterial3Api
+class MainActivity : ComponentActivity()
+{
+    override fun onCreate(savedInstanceState: Bundle?)
+    {
+        super.onCreate(savedInstanceState)
+
+        val db = Room.databaseBuilder(
+            applicationContext,
+            AppDatabase::class.java,
+            "app_db"
+        ).build()
+
+        val repository = HabitRepository(
+            db.habitDao(),
+            db.habitEntryDao()
+        )
+
+        enableEdgeToEdge()
+        setContent {
+            DailiesTheme {
+                AppNavGraph(repository)
+            }
+        }
+    }
+}
+
+@ExperimentalMaterial3Api
+@Composable
+fun AppNavGraph(repository: HabitRepository) {
+
+    val navController = rememberNavController()
+
+    NavHost(
+        navController = navController,
+        startDestination = "main"
+    ) {
+
+        composable("main") {
+            val vm: HabitsListViewModel = viewModel(
+                factory = HabitsListViewModelFactory(repository)
+            )
+
+            MainScreen(vm, navController)
+        }
+
+        composable("create") {
+            val vm: CreateHabitViewModel = viewModel(
+                factory = CreateHabitViewModelFactory(repository)
+            )
+
+            CreateHabitScreen(vm, navController)
+        }
+
+        composable("edit/{habitId}") {
+            backStackEntry ->
+                val habitId = backStackEntry.arguments?.getString("habitId")?.toLong()
+            val vm: HabitViewModel = viewModel(
+                factory = HabitViewModelFactory(repository, habitId!!)
+            )
+
+            EditHabitScreen(vm, navController, habitId)
+        }
+    }
+}
+
+@Composable
+fun Greeting(name: String, modifier: Modifier = Modifier) {
+    Text(
+        text = "Hello $name!",
+        modifier = modifier
+    )
+}
+
+@Preview(showBackground = true)
+@Composable
+fun GreetingPreview() {
+    DailiesTheme {
+        Greeting("Android")
+    }
+}
+
+Файл { data/AppDatabase.kt }
+package com.kletter.dailies.data
+
+import androidx.room.Database
+import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
+
+@Database(entities = [HabitEntity::class, HabitEntryEntity::class], version = 1)
+@TypeConverters(Converters::class)
+abstract class AppDatabase : RoomDatabase() {
+    abstract fun habitDao(): HabitDao
+    abstract fun habitEntryDao(): HabitEntryDao
+}
+
+Файл { data/Converters.kt }
+package com.kletter.dailies.data
+
+import androidx.compose.ui.graphics.Color
+import androidx.room.TypeConverter
+import java.time.LocalDate
+
+// конвертеры для представления типов Color и LocalDate в БД
+class Converters {
+
+    @TypeConverter
+    fun fromLocalDate(date: LocalDate): Long {
+        return date.toEpochDay()
+    }
+
+    @TypeConverter
+    fun toLocalDate(epochDay: Long): LocalDate {
+        return LocalDate.ofEpochDay(epochDay)
+    }
+
+    @TypeConverter
+    fun fromColor(color: Color): Int {
+        return color.value.toInt()
+    }
+
+    @TypeConverter
+    fun toColor(value: Int): Color {
+        return Color(value)
+    }
+}
+
+Файл { data/Habit.kt }
+package com.kletter.dailies.data
+
+import androidx.compose.ui.graphics.Color
+
+data class Habit(
+    val id: Long,
+    val title: String,
+    val color: Color,
+    val dailyTarget: Int
+)
+
+Файл { data/HabitDao.kt }
+package com.kletter.dailies.data
+
+import androidx.room.Dao
+import androidx.room.Delete
+import androidx.room.Insert
+import androidx.room.Query
+import androidx.room.Update
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface HabitDao {
+
+    @Query("SELECT * FROM habits")
+    fun getAllHabits(): Flow<List<HabitEntity>>
+
+    @Query("SELECT * FROM habits")
+    suspend fun getAllHabitsAsList(): List<HabitEntity>
+
+    @Query("SELECT * FROM habits WHERE id = :id LIMIT 1")
+    fun getHabitById(id:Long): Flow<HabitEntity?>
+
+    @Insert
+    suspend fun insert(habit: HabitEntity)
+
+    //@Update
+    //suspend fun update(habit: HabitEntity)
+
+
+    @Query("""
+        UPDATE habits
+        SET title = :newTitle,
+            dailyTarget = :newTarget
+        WHERE id = :habitId
+    """)
+    suspend fun update(habitId: Long, newTitle: String, newTarget: Int)
+
+    @Delete
+    suspend fun delete(habit: HabitEntity)
+
+    @Query("DELETE FROM habits WHERE id = :id")
+    suspend fun deleteById(id: Long)
+}
+
+Файл { data/HabitEntity.kt }
+package com.kletter.dailies.data
+
+import androidx.compose.ui.graphics.Color
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+
+@Entity(tableName = "habits")
+data class HabitEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long,
+    val title: String,
+    val color: Color,
+    val dailyTarget: Int
+)
+
+Файл { data/HabitEntry.kt }
+package com.kletter.dailies.data;
+
+import java.time.LocalDate
+
+data class HabitEntry(
+    val id: Long,
+    val habitId: Long,
+    val date: LocalDate,
+    var completedCount: Int
+)
+
+Файл { data/HabitEntryDao.kt }
+package com.kletter.dailies.data
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.Query
+import androidx.room.Update
+import kotlinx.coroutines.flow.Flow
+import java.time.LocalDate
+
+@Dao
+interface HabitEntryDao {
+
+    @Query("SELECT * FROM habit_entries")
+    fun getAllEntries(): Flow<List<HabitEntryEntity>>
+
+    @Query("SELECT * FROM habit_entries WHERE date = :targetEpochDate AND habitId = :habitId LIMIT 1")
+    fun getEntryForDate(habitId: Long, targetEpochDate: Long): HabitEntryEntity?
+
+    @Query("""
+    UPDATE habit_entries 
+    SET completedCount = completedCount + 1
+    WHERE habitId = :habitId AND date = :date
+""")
+    suspend fun increment(habitId: Long, date: Long): Int
+
+    @Insert
+    suspend fun insert(entry: HabitEntryEntity)
+
+    @Update
+    suspend fun update(entry: HabitEntryEntity)
+}
+
+Файл { data/HabitEntryEntity.kt }
+package com.kletter.dailies.data
+
+import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
+import androidx.room.PrimaryKey
+import java.time.LocalDate
+
+@Entity(
+    tableName = "habit_entries",
+    foreignKeys = [
+        ForeignKey(
+            entity = HabitEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["habitId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("habitId")]
+)
+class HabitEntryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val habitId: Long,
+    val date: LocalDate,
+    var completedCount: Int
+)
+
+Файл { data/HabitWithStats.kt }
+package com.kletter.dailies.data
+
+import androidx.compose.ui.graphics.Color
+
+data class HabitWithStats(
+    val id: Long,
+    val title: String,
+    val color: Color,
+    val dailyTarget: Int,
+
+    val todayDone: Int,
+    val isCompletedToday: Boolean,
+    val streak: Int
+) {
+}
+
+Файл { data/mapper/Mapper.kt }
+package com.kletter.dailies.data.mapper
+
+import com.kletter.dailies.data.Habit
+import com.kletter.dailies.data.HabitEntity
+import com.kletter.dailies.data.HabitEntry
+import com.kletter.dailies.data.HabitEntryEntity
+import java.time.LocalDate
+import kotlin.Long
+
+fun HabitEntity.toHabit(): Habit
+{
+    return Habit(
+        id = id,
+        title = title,
+        color = color,
+        dailyTarget = dailyTarget
+    )
+}
+fun Habit.toEntity(): HabitEntity
+{
+    return HabitEntity(
+        id = id,
+        title = title,
+        color = color,
+        dailyTarget = dailyTarget
+    )
+}
+
+fun HabitEntryEntity.toHabitEntry(): HabitEntry
+{
+    return HabitEntry(
+        id = id,
+        habitId = habitId,
+        date = date,
+        completedCount = completedCount
+    )
+}
+fun HabitEntry.toEntity(): HabitEntryEntity
+{
+    return HabitEntryEntity(
+        id = id,
+        habitId = habitId,
+        date = date,
+        completedCount = completedCount
+    )
+}
+
+Файл { repositories/HabitRepository.kt }
+package com.kletter.dailies.repositories
+
+import android.R.attr.value
+import com.kletter.dailies.data.Habit
+import com.kletter.dailies.data.HabitDao
+import com.kletter.dailies.data.HabitEntity
+import com.kletter.dailies.data.HabitEntry
+import com.kletter.dailies.data.HabitEntryDao
+import com.kletter.dailies.data.HabitEntryEntity
+import com.kletter.dailies.data.HabitWithStats
+import com.kletter.dailies.data.mapper.*
+import com.kletter.dailies.data.mapper.toHabit
+import kotlinx.coroutines.flow.*
+import java.time.LocalDate
+import java.util.Map.entry
+import kotlin.collections.map
+import androidx.compose.ui.graphics.Color
+
+class HabitRepository(private val habitDao: HabitDao, private val habitEntryDao: HabitEntryDao) {
+    val habits = habitDao.getAllHabits().map { list -> list.map { it.toHabit() } }
+
+    val entries = habitEntryDao.getAllEntries().map { list -> list.map { it.toHabitEntry()}}
+
+    fun getHabitById(id:Long): Flow<HabitEntity?>
+    {
+        return habitDao.getHabitById(id)
+    }
+
+    fun getHabitsWithStats(): Flow<List<HabitWithStats>> =
+        combine(habits, entries) { habitList, entryList ->
+            val entriesByHabit = entryList.groupBy { it.habitId }
+            val today = LocalDate.now()
+
+            habitList.map { habit ->
+                val habitEntries = entriesByHabit[habit.id] ?: emptyList()
+                val todayDone = habitEntries.filter { it.date == today }.sumOf { it.completedCount }
+
+                var streak = 0
+                var dateCursor = today
+                val sortedEntries = habitEntries.sortedByDescending { it.date }
+
+                while (true) {
+                    val entry = sortedEntries.find { it.date == dateCursor }
+                    if (entry != null && entry.completedCount >= habit.dailyTarget) {
+                        streak++
+                        dateCursor = dateCursor.minusDays(1)
+                    } else break
+                }
+
+                HabitWithStats(
+                    id = habit.id, title = habit.title, color = habit.color,
+                    dailyTarget = habit.dailyTarget, todayDone = todayDone,
+                    isCompletedToday = todayDone >= habit.dailyTarget, streak = streak
+                )
+            }
+        }
+
+    suspend fun onHabitCreated(title: String, dailyTarget: Int)
+    {
+        habitDao.insert(
+            habit = HabitEntity(
+                id = 0,
+                title = title,
+                color = Color(0xFFF8BBD0),
+                dailyTarget = dailyTarget
+            ))
+    }
+
+    suspend fun onHabitDeleted(id: Long)
+    {
+        println(id)
+        habitDao.deleteById(id)
+    }
+
+    suspend fun onHabitEdited(habitId: Long, newTitle: String, newTarget: Int)
+    {
+        habitDao.update(habitId, newTitle, newTarget)
+    }
+    suspend fun onHabitDone(habitId: Long)
+    {
+        val today = LocalDate.now()
+        val todayEpochDate = today.toEpochDay()
+        val updatedRows = habitEntryDao.increment(habitId, todayEpochDate)
+
+        if (updatedRows == 0) {
+            habitEntryDao.insert(
+                HabitEntryEntity(
+                    habitId = habitId,
+                    date = today,
+                    completedCount = 1
+                )
+            )
+        }
+    }
+}
+
+Файл { repositories/TestHabitRepository.kt }
+package com.kletter.dailies.repositories
+
+import androidx.compose.ui.graphics.Color
+import com.kletter.dailies.data.Habit
+import com.kletter.dailies.data.HabitEntry
+import com.kletter.dailies.data.HabitWithStats
+import kotlinx.coroutines.flow.*
+import java.time.LocalDate
+
+class TestHabitRepository {
+    private val _habits = MutableStateFlow(mutableListOf(
+        Habit(1, "Drink Water", Color(0xFF4CAF50), 8),
+        Habit(2, "Morning Run", Color(0xFFFF9800), 1),
+        Habit(3, "Read Book", Color(0xF53F51B5), 20),
+        Habit(4, "Meditate", Color(0xFF9C27B0), 20),
+        Habit(5, "Practice Coding", Color(0xFFF91E63), 30),
+        Habit(6, "Eat Healthy", Color(0xFFFFC107), 3),
+        Habit(7, "Journal", Color(0xFF779548), 1),
+        Habit(8, "Learn New Word", Color(0xFF673AB7), 1),
+        Habit(9, "Stretch", Color(0xFF2196F3), 5),
+        Habit(10, "Sleep 8 Hours", Color(0xFF00BCD4), 1)
+    ))
+    val habits: StateFlow<List<Habit>> = _habits
+
+    private val _entries = MutableStateFlow(mutableListOf(
+        HabitEntry(1, 1, LocalDate.now(), 8), HabitEntry(2, 1, LocalDate.now().minusDays(1), 8), HabitEntry(3, 1, LocalDate.now().minusDays(2), 8),
+        HabitEntry(4, 2, LocalDate.now(), 1), HabitEntry(5, 2, LocalDate.now().minusDays(2), 1),
+        HabitEntry(6, 3, LocalDate.now(), 10), HabitEntry(7, 3, LocalDate.now().minusDays(1), 20),
+        HabitEntry(8, 4, LocalDate.now().minusDays(1), 20), HabitEntry(9, 4, LocalDate.now().minusDays(2), 20),
+        HabitEntry(10, 5, LocalDate.now(), 30), HabitEntry(11, 5, LocalDate.now().minusDays(1), 30), HabitEntry(12, 5, LocalDate.now().minusDays(2), 30), HabitEntry(13, 5, LocalDate.now().minusDays(3), 30),
+        HabitEntry(14, 6, LocalDate.now(), 2),
+        HabitEntry(15, 7, LocalDate.now(), 1),
+        HabitEntry(16, 8, LocalDate.now(), 1), HabitEntry(17, 8, LocalDate.now().minusDays(1), 1),
+        HabitEntry(18, 9, LocalDate.now().minusDays(3), 5),
+        HabitEntry(19, 10, LocalDate.now(), 8), HabitEntry(20, 10, LocalDate.now().minusDays(1), 8), HabitEntry(21, 10, LocalDate.now().minusDays(2), 8)
+    ))
+    val entries: StateFlow<List<HabitEntry>> = _entries
+
+    fun getHabitsWithStats(): Flow<List<HabitWithStats>> =
+        combine(habits, entries) { habitList, entryList ->
+            val entriesByHabit = entryList.groupBy { it.habitId }
+            val today = LocalDate.now()
+
+            habitList.map { habit ->
+                val habitEntries = entriesByHabit[habit.id] ?: emptyList()
+                val todayDone = habitEntries.filter { it.date == today }.sumOf { it.completedCount }
+
+                var streak = 0
+                var dateCursor = today
+                val sortedEntries = habitEntries.sortedByDescending { it.date }
+
+                while (true) {
+                    val entry = sortedEntries.find { it.date == dateCursor }
+                    if (entry != null && entry.completedCount >= habit.dailyTarget) {
+                        streak++
+                        dateCursor = dateCursor.minusDays(1)
+                    } else break
+                }
+
+                HabitWithStats(
+                    id = habit.id, title = habit.title, color = habit.color,
+                    dailyTarget = habit.dailyTarget, todayDone = todayDone,
+                    isCompletedToday = todayDone >= habit.dailyTarget, streak = streak
+                )
+            }
+        }
+
+    fun onHabitDone(habitId: Long) {
+        val currentEntries = _entries.value.toMutableList() // Создаём НОВУЮ ссылку
+        val today = LocalDate.now()
+
+        val existingIndex = currentEntries.indexOfFirst { it.habitId == habitId && it.date == today }
+
+        if (existingIndex != -1) {
+            currentEntries[existingIndex] = currentEntries[existingIndex].copy(completedCount = currentEntries[existingIndex].completedCount + 1)
+        } else {
+            currentEntries.add(
+                HabitEntry(
+                    id = (currentEntries.maxOfOrNull { it.id } ?: 0) + 1, // доработать!
+                    habitId = habitId, date = today, completedCount = 1
+                )
+            )
+        }
+
+        _entries.value = currentEntries
+    }
+}
+
+Файл { ui/theme/Color.kt }
+package com.kletter.dailies.ui.theme
+
+import androidx.compose.ui.graphics.Color
+
+val Purple80 = Color(0xFFD0BCFF)
+val PurpleGrey80 = Color(0xFFCCC2DC)
+val Pink80 = Color(0xFFEFB8C8)
+
+val Purple40 = Color(0xFF6650a4)
+val PurpleGrey40 = Color(0xFF625b71)
+val Pink40 = Color(0xFF7D5260)
+
+Файл { ui/theme/Theme.kt }
+package com.kletter.dailies.ui.theme
+
+import android.app.Activity
+import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+
+private val DarkColorScheme = darkColorScheme(
+    primary = Purple80,
+    secondary = PurpleGrey80,
+    tertiary = Pink80
+)
+
+private val LightColorScheme = lightColorScheme(
+    primary = Purple40,
+    secondary = PurpleGrey40,
+    tertiary = Pink40
+
+    /* Other default colors to override
+    background = Color(0xFFFFFBFE),
+    surface = Color(0xFFFFFBFE),
+    onPrimary = Color.White,
+    onSecondary = Color.White,
+    onTertiary = Color.White,
+    onBackground = Color(0xFF1C1B1F),
+    onSurface = Color(0xFF1C1B1F),
+    */
+)
+
+@Composable
+fun DailiesTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    // Dynamic color is available on Android 12+
+    dynamicColor: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val colorScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            val context = LocalContext.current
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+
+        darkTheme -> DarkColorScheme
+        else -> LightColorScheme
+    }
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = Typography,
+        content = content
+    )
+}
+
+Файл { ui/theme/Type.kt }
+package com.kletter.dailies.ui.theme
+
+import androidx.compose.material3.Typography
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+
+// Set of Material typography styles to start with
+val Typography = Typography(
+    bodyLarge = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Normal,
+        fontSize = 16.sp,
+        lineHeight = 24.sp,
+        letterSpacing = 0.5.sp
+    )
+    /* Other default text styles to override
+    titleLarge = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Normal,
+        fontSize = 22.sp,
+        lineHeight = 28.sp,
+        letterSpacing = 0.sp
+    ),
+    labelSmall = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Medium,
+        fontSize = 11.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.5.sp
+    )
+    */
+)
+
+Файл { viewmodels/CreateHabitViewModel.kt }
+package com.kletter.dailies.viewmodels
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.kletter.dailies.data.HabitEntity
+import com.kletter.dailies.repositories.HabitRepository
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+class CreateHabitViewModel(private val repository: HabitRepository) : ViewModel()
+{
+    fun onHabitCreated(title: String, dailyTarget: Int) {
+        // чтобы вызывать suspend из не-suspend (для composable)
+        viewModelScope.launch {
+            repository.onHabitCreated(title, dailyTarget)
+        }
+    }
+}
+
+Файл { viewmodels/CreateHabitViewModelFactory.kt }
+package com.kletter.dailies.viewmodels
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import com.kletter.dailies.repositories.HabitRepository
+
+class CreateHabitViewModelFactory(private val repository: HabitRepository) : ViewModelProvider.Factory
+{
+    override fun <T : ViewModel> create(modelClass: Class<T>): T
+    {
+        return CreateHabitViewModel(repository) as T
+    }
+}
+
+Файл { viewmodels/HabitViewModel.kt }
+package com.kletter.dailies.viewmodels
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.kletter.dailies.data.HabitEntity
+import com.kletter.dailies.repositories.HabitRepository
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+class HabitViewModel(private val repository: HabitRepository,  private val habitId: Long) : ViewModel()
+{
+    val habit: StateFlow<HabitEntity?> =
+        repository.getHabitById(habitId)
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5000),
+                null
+            )
+
+    fun onHabitEdited(title: String, dailyTarget: Int) {
+        // чтобы вызывать suspend из не-suspend (для composable)
+        viewModelScope.launch {
+            repository.onHabitEdited(habitId, title, dailyTarget)
+        }
+    }
+    fun onHabitDeleted() {
+        // чтобы вызывать suspend из не-suspend (для composable)
+        viewModelScope.launch {
+            repository.onHabitDeleted(habitId)
+        }
+    }
+}
+
+Файл { viewmodels/HabitViewModelFactory.kt }
+package com.kletter.dailies.viewmodels
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import com.kletter.dailies.repositories.HabitRepository
+
+class HabitViewModelFactory(private val repository: HabitRepository, private val habitId: Long) : ViewModelProvider.Factory
+{
+    override fun <T : ViewModel> create(modelClass: Class<T>): T
+    {
+        return HabitViewModel(repository, habitId) as T
+    }
+}
+
+Файл { viewmodels/HabitsListViewModel.kt }
+package com.kletter.dailies.viewmodels
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.kletter.dailies.data.HabitWithStats
+import com.kletter.dailies.repositories.HabitRepository
+import com.kletter.dailies.repositories.TestHabitRepository
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+class HabitsListViewModel(private val repository: HabitRepository) : ViewModel()
+{
+    val habits: StateFlow<List<HabitWithStats>> =
+        repository.getHabitsWithStats()
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5000),
+                emptyList()
+            )
+    fun onHabitDone(habitId: Long) {
+        // чтобы вызывать suspend из не-suspend (для composable)
+        viewModelScope.launch {
+            repository.onHabitDone(habitId)
+        }
+    }
+}
+
+Файл { viewmodels/HabitsListViewModelFactory.kt }
+package com.kletter.dailies.viewmodels
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import com.kletter.dailies.repositories.HabitRepository
+
+class HabitsListViewModelFactory(private val repository: HabitRepository) : ViewModelProvider.Factory
+{
+    override fun <T : ViewModel> create(modelClass: Class<T>): T
+    {
+        return HabitsListViewModel(repository) as T
+    }
+}
+
+Файл { views/CreateHabitScreen.kt }
+package com.kletter.dailies.views
+
+
+import android.R.attr.data
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+import com.kletter.dailies.viewmodels.CreateHabitViewModel
+import com.kletter.dailies.viewmodels.HabitViewModel
+
+@ExperimentalMaterial3Api
+@Composable
+fun CreateHabitScreen(
+    viewModel: CreateHabitViewModel,
+    navController: NavController
+) {
+
+
+    var title by remember { mutableStateOf("") }
+    var target by remember { mutableStateOf("") }
+
+    Scaffold(
+        modifier = Modifier.padding(12.dp),
+        topBar = {
+            TopAppBar(
+                title = { Text("Создать") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+            )
+        },
+        bottomBar = {
+            Row(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilledTonalButton(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    onClick = {
+                        navController.navigate("main")
+                    }
+                ) {
+                    Text("Отмена")
+                }
+
+                Button(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    onClick = {
+                        viewModel.onHabitCreated(title, target.toInt())
+                        navController.navigate("main")
+                    }
+                ) {
+                    Text("Создать")
+                }
+            }
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues = padding)
+                .padding(16.dp)
+                .statusBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it },
+                label = { Text("Название") }
+            )
+
+            OutlinedTextField(
+                value = target,
+                onValueChange = { target = it },
+                label = { Text("Цель в день") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            )
+        }
+    }
+}
+
+Файл { views/DeleteDialog.kt }
+package com.kletter.dailies.views
+
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+
+@Composable
+fun DeleteDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Удалить привычку?") },
+        text = { Text("Это действие невозможно отменить") },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Отмена")
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Удалить")
+            }
+        }
+    )
+    println("qweqweqwe")
+}
+
+Файл { views/EditHabitScreen.kt }
+package com.kletter.dailies.views
+
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.runtime.Composable
+import androidx.navigation.NavController
+import com.kletter.dailies.viewmodels.HabitViewModel
+
+@ExperimentalMaterial3Api
+@Composable
+fun EditHabitScreen(
+    viewModel: HabitViewModel,
+    navController: NavController,
+    habitId: Long
+) {
+    HabitScreen(
+        navController = navController,
+        viewModel = viewModel,
+        habitId = habitId,
+        isEditing = true
+    )
+}
+
+Файл { views/HabitScreen.kt }
+package com.kletter.dailies.views
+
+import android.R.attr.data
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+import com.kletter.dailies.viewmodels.HabitViewModel
+
+@ExperimentalMaterial3Api
+@Composable
+fun HabitScreen(
+    navController: NavController,
+    viewModel: HabitViewModel,
+    habitId: Long? = null,
+    isEditing: Boolean = false
+) {
+    var isLoaded = false
+    val habit = viewModel.habit.collectAsState()
+    val data = habit.value
+
+    if (data == null && !isLoaded) {
+        CircularProgressIndicator()
+        isLoaded = true
+        return
+    }
+
+    if (data == null && isLoaded) {
+        LaunchedEffect(Unit) {
+            navController.popBackStack()
+        }
+        return
+    }
+
+    var title by remember { mutableStateOf(data?.title ?: "") }
+    var target by remember { mutableStateOf(data?.dailyTarget.toString() ?: "") }
+    var showingDialog by remember { mutableStateOf(false) }
+
+    Scaffold(
+        modifier = Modifier.padding(12.dp),
+        topBar = {
+            TopAppBar(
+                title = { Text(if (isEditing) "Редактировать" else "Создать") },
+                navigationIcon = {
+                        IconButton(onClick = { navController.popBackStack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                },
+                actions = {
+                    if(isEditing) {
+                        // Правая кнопка для удаления
+                        IconButton(onClick = { showingDialog = true }) {
+                            Icon(Icons.Outlined.Delete, contentDescription = "Delete")
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+            )
+        },
+        bottomBar = {
+            Row(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isEditing) {
+                    FilledTonalButton(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        onClick = {
+                            navController.navigate("main")
+                        }
+                    ) {
+                        Text("Отмена")
+                    }
+                }
+
+                Button(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    onClick = {
+                        if (isEditing) {
+                            viewModel.onHabitEdited(title, target.toInt())
+                        } else {
+                            //viewModel.onHabitCreated(title, target.toInt())
+                        }
+                        navController.navigate("main")
+                    }
+                ) {
+                    Text(if (isEditing) "Сохранить" else "Создать")
+                }
+            }
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues = padding)
+                .padding(16.dp)
+                .statusBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it },
+                label = { Text("Название") }
+            )
+
+            OutlinedTextField(
+                value = target,
+                onValueChange = { target = it },
+                label = { Text("Цель в день") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            )
+        }
+    }
+
+    if (showingDialog) {
+        DeleteDialog(
+            onDismiss = { showingDialog = false },
+            onConfirm = {
+                navController.navigate("main")
+                showingDialog = false
+                if (habitId != null) {
+                    viewModel.onHabitDeleted()
+                }
+            }
+        )
+    }
+}
+
+Файл { views/MainScreen.kt }
+package com.kletter.dailies.views
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.outlined.Create
+import androidx.compose.material.icons.rounded.Create
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
+import com.kletter.dailies.data.HabitWithStats
+import com.kletter.dailies.viewmodels.HabitsListViewModel
+import com.kletter.dailies.viewmodels.HabitsListViewModelFactory
+
+@ExperimentalMaterial3Api
+@Composable
+fun MainScreen(
+    viewModel: HabitsListViewModel,
+    navController: NavController
+) {
+    Scaffold(
+        modifier = Modifier.padding(12.dp),
+        topBar = {
+            TopAppBar(
+                title = { Text("Dailies") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        bottomBar = {
+            Button(
+                onClick = { navController.navigate("create") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Create,
+                        contentDescription = "Add Icon"
+                    )
+                    Text("Создать привычку")
+                }
+            }
+        }
+    ) { padding ->
+
+        HabitList(
+            viewModel = viewModel,
+            modifier = Modifier.padding(padding),
+            navController = navController
+        )
+    }
+}
+
+@Composable
+fun HabitList(viewModel: HabitsListViewModel, modifier: Modifier, navController: NavController) {
+    val habits = viewModel.habits.collectAsState()
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = modifier) {
+        items(habits.value) { habit ->
+            HabitItem(viewModel, habit, navController)
+        }
+    }
+}
+
+@Composable
+fun HabitItem(viewModel: HabitsListViewModel, habit: HabitWithStats, navController: NavController)
+{
+    Row(modifier = Modifier
+        .fillMaxWidth()
+        .clip(RoundedCornerShape(16.dp))
+        .padding(8.dp)
+        .clickable {
+            navController.navigate("edit/${habit.id}")
+            println(habit.id)
+        },
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically)
+    {
+        Column()
+        {
+            Text(habit.title)
+            Text("Streak ${habit.streak} days")
+        }
+        Button(
+            onClick = {viewModel.onHabitDone(habit.id)},
+            enabled = !habit.isCompletedToday){
+            Text("${habit.todayDone}/${habit.dailyTarget}")
+        }
+    }
+}
