@@ -25,7 +25,7 @@ import com.kletter.dailies.viewmodels.HabitViewModelFactory
 import com.kletter.dailies.viewmodels.HabitsListViewModel
 import com.kletter.dailies.viewmodels.HabitsListViewModelFactory
 import com.kletter.dailies.views.CreateHabitScreen
-import com.kletter.dailies.views.EditHabitScreen
+import com.kletter.dailies.views.HabitScreen
 import com.kletter.dailies.views.MainScreen
 
 @ExperimentalMaterial3Api
@@ -89,7 +89,7 @@ fun AppNavGraph(repository: HabitRepository) {
                 factory = HabitViewModelFactory(repository, habitId!!)
             )
 
-            EditHabitScreen(vm, navController, habitId)
+            HabitScreen(navController, vm, habitId)
         }
     }
 }

@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.kletter.dailies.viewmodels.HabitViewModel
 
@@ -40,8 +41,7 @@ import com.kletter.dailies.viewmodels.HabitViewModel
 fun HabitScreen(
     navController: NavController,
     viewModel: HabitViewModel,
-    habitId: Long? = null,
-    isEditing: Boolean = false
+    habitId: Long? = null
 ) {
     var isLoaded = false
     val habit = viewModel.habit.collectAsState()
@@ -68,18 +68,16 @@ fun HabitScreen(
         modifier = Modifier.padding(12.dp),
         topBar = {
             TopAppBar(
-                title = { Text(if (isEditing) "Редактировать" else "Создать") },
+                title = { Text("Редактировать") },
                 navigationIcon = {
                         IconButton(onClick = { navController.popBackStack() }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                 },
                 actions = {
-                    if(isEditing) {
-                        // Правая кнопка для удаления
-                        IconButton(onClick = { showingDialog = true }) {
-                            Icon(Icons.Outlined.Delete, contentDescription = "Delete")
-                        }
+                    // Правая кнопка для удаления
+                    IconButton(onClick = { showingDialog = true }) {
+                        Icon(Icons.Outlined.Delete, contentDescription = "Delete")
                     }
                 },
                 modifier = Modifier
@@ -94,17 +92,15 @@ fun HabitScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (isEditing) {
-                    FilledTonalButton(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        onClick = {
-                            navController.navigate("main")
-                        }
-                    ) {
-                        Text("Отмена")
+                FilledTonalButton(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    onClick = {
+                        navController.navigate("main")
                     }
+                ) {
+                    Text("Отмена")
                 }
 
                 Button(
@@ -112,15 +108,11 @@ fun HabitScreen(
                         .weight(1f)
                         .fillMaxWidth(),
                     onClick = {
-                        if (isEditing) {
-                            viewModel.onHabitEdited(title, target.toInt())
-                        } else {
-                            //viewModel.onHabitCreated(title, target.toInt())
-                        }
+                        viewModel.onHabitEdited(title, target.toInt())
                         navController.navigate("main")
                     }
                 ) {
-                    Text(if (isEditing) "Сохранить" else "Создать")
+                    Text("Сохранить")
                 }
             }
         }
